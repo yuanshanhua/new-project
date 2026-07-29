@@ -1,7 +1,7 @@
 ---
 name: new-project-python-cli
 description: >-
-  Scaffold a Python CLI project. Toolchain: uv, ruff, mypy, pyright, pytest.
+  Scaffold a Python CLI project. Toolchain: uv, ruff, ty, pyright, pytest.
   Layout: src-layout with click. Use for Python command-line tools,
   scripts graduating to packages, or any single-purpose Python CLI.
 ---
@@ -91,7 +91,7 @@ def test_hello():
 1. 询问用户：项目名、包名（默认项目名 snake_case）、CLI 命令名
 2. `uv init --lib <项目名>` 生成基础项目
 3. 清理 `uv init` 生成的示例代码，写入上述 CLI 特有文件
-4. 按 `reference/python-conventions.md` 用 `uv add --dev` 安装 dev 依赖，添加 ruff/mypy/pyright 配置
+4. 按 `reference/python-conventions.md` 用 `uv add --dev` 安装 dev 依赖，添加 ruff/ty/pyright 配置
 5. 从 `templates/ruff.toml` 复制到项目根目录
 6. 写入 `Justfile` 和 `.gitignore`（使用 `reference/python-conventions.md` 中的模板）
 7. `uv sync && just test && just fmt && just lint`

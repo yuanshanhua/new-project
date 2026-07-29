@@ -59,11 +59,40 @@ Monorepo，两个顶层目录。前端开发服务器通过 Vite proxy 将 `/api
 uv add fastapi[standard] "sqlalchemy[asyncio]" asyncpg alembic pydantic-settings
 ```
 
-### backend/Justfile 额外目标
+### backend/Justfile
 
-在 Python 标准目标上追加：
+基于 `reference/python-conventions.md` 的模板，追加后端特有目标。**按项目实际需求调整**。
 
 ```make
+default:
+    @just --list
+
+CHECK_DIRS := "src tests"
+
+lint:
+    uv run ruff check {{CHECK_DIRS}}
+
+format:
+    uv run ruff format --check {{CHECK_DIRS}}
+
+fix:
+    uv run ruff check --fix {{CHECK_DIRS}}
+    uv run ruff format {{CHECK_DIRS}}
+
+typecheck:
+    uv run pyright {{CHECK_DIRS}}
+    uv run ty check {{CHECK_DIRS}}
+
+test:
+    -uv run pytest tests/ -v
+
+check: lint format typecheck test
+
+deps:
+    uv tree -d 1 --outdated
+
+# ↓ 后端特有目标 ↓
+
 dev:
     uv run fastapi dev src/<package>/main.py
 
@@ -194,6 +223,27 @@ pnpm add react-router-dom
 pnpm add -D tailwindcss @tailwindcss/vite
 ```
 
+### package.json 脚本参考
+
+以下为 Vite + React 项目的推荐脚本，**按项目需求调整**（如替换格式化工具、添加项目特有命令等）：
+
+```json
+{
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "tsc --noEmit",
+    "format": "prettier --check src/",
+    "fix": "prettier --write src/",
+    "dep": "ncu -i --format group"
+  }
+}
+```
+
+> `ncu` 由 `npm-check-updates` 提供：`pnpm add -D npm-check-updates`。
+> 如使用 biome 替代 prettier，相应替换 `format`/`fix` 命令。
+
 ### vite.config.ts
 
 ```typescript
@@ -270,6 +320,8 @@ volumes:
 
 ## 顶层 Justfile
 
+以下为 monorepo 顶层编排模板，**按项目需求调整**：
+
 ```make
 default:
     @just --list
@@ -283,27 +335,19 @@ dev-backend:
 dev-frontend:
     cd frontend && pnpm dev
 
-fmt:
-    cd backend && just fmt
-    cd frontend && pnpm exec prettier --write src/
+check:
+    cd backend && just check
+    cd frontend && pnpm lint
 
-lint:
-    cd backend && just lint
-    cd frontend && pnpm exec tsc --noEmit
-
-test:
-    cd backend && just test
-    cd frontend && pnpm exec vitest run --passWithNoTests
+fix:
+    cd backend && just fix
+    cd frontend && pnpm fix
 
 db-up:
     docker compose up -d db
 
 db-migrate:
     cd backend && just db-migrate
-
-clean:
-    cd backend && just clean
-    cd frontend && rm -rf dist/ node_modules/
 ```
 
 ## 搭建步骤
@@ -312,7 +356,7 @@ clean:
 2. 创建项目根目录，写入 `docker-compose.yml`、顶层 `Justfile`、`.gitignore`
 3. **后端**：
    - `cd backend && uv init --lib`
-   - 按 `reference/python-conventions.md` 用 `uv add --dev` 安装 dev 依赖，添加 ruff/mypy/pyright 配置
+   - 按 `reference/python-conventions.md` 用 `uv add --dev` 安装 dev 依赖，添加 ruff/ty/pyright 配置
    - `uv add fastapi[standard] "sqlalchemy[asyncio]" asyncpg alembic pydantic-settings`
    - 从 `templates/ruff.toml` 复制到 `backend/`
    - 写入 `Justfile`（标准目标 + db-* 目标）
