@@ -1,0 +1,29 @@
+default:
+    @just --list
+
+CHECK_DIRS := "src tests"
+
+lint:
+    uv run ruff check {{CHECK_DIRS}}
+
+format:
+    uv run ruff format --check {{CHECK_DIRS}}
+
+fix:
+    uv run ruff check --fix {{CHECK_DIRS}}
+    uv run ruff format {{CHECK_DIRS}}
+
+typecheck:
+    uv run pyright {{CHECK_DIRS}}
+    uv run ty check {{CHECK_DIRS}}
+
+test:
+    -uv run pytest tests/ -v
+
+check: lint format typecheck test
+
+deps:
+    uv tree -d 1 --outdated
+
+sync:
+    uv sync

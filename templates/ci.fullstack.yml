@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+env:
+  NODE_VERSION: "24"
+  PNPM_VERSION: "10"
+
+jobs:
+  check:
+    name: just check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup UV
+        uses: astral-sh/setup-uv@v8
+        with:
+          enable-cache: true
+
+      - name: Install Python dependencies
+        run: uv sync --dev
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install UI dependencies
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+
+      - name: Setup just
+        uses: extractions/setup-just@v4
+
+      - name: Check OpenAPI sync
+        run: |
+          just generate
+          if ! git diff --quiet web/openapi.json web/src/client; then
+            echo "::error::Generated API files are out of sync. Run 'just generate' and commit."
+            git diff --stat
+            exit 1
+          fi
+
+      - name: Check
+        run: just check
+
+      - name: Build
+        run: just build

@@ -11,13 +11,22 @@ new-project/
 ├── SKILL.md                       # 路由索引（AI 入口）
 ├── reference/                     # 语言级通用约定
 │   ├── python-conventions.md
+│   ├── frontend-conventions.md
 │   ├── go-conventions.md
 │   └── rust-conventions.md
-├── templates/                     # 可复用工具配置文件
+├── templates/                     # 可复用工具配置与脚手架片段
 │   ├── ruff.toml
+│   ├── Justfile.python
+│   ├── Justfile.fullstack
+│   ├── AGENTS.md
+│   ├── env.example
+│   ├── openapi-ts.config.ts
+│   ├── .pre-commit-config.yaml
+│   ├── ci.python.yml
+│   ├── ci.fullstack.yml
 │   ├── .golangci.yml
 │   └── rustfmt.toml
-└── subskills/                     # 按技术栈分类的子 skill
+└── subskills/
     ├── python-cli/SKILL.md
     ├── go-cli/SKILL.md
     ├── fastapi-react/SKILL.md
@@ -46,7 +55,7 @@ new-project/
 - 入口代码模板（仅该类型独有的文件）
 - 搭建步骤（引用内置脚手架 + 约定文件）
 
-通用内容（工具链说明、Justfile 模板、.gitignore、禁止事项等）全部在 `reference/<lang>-conventions.md` 中定义。
+通用内容（工具链、Justfile、.gitignore、门禁、禁止事项）全部在 `reference/<lang>-conventions.md` 中定义。
 
 ### 3. 优先使用内置脚手架
 
@@ -67,6 +76,8 @@ new-project/
 该文件定义的内容，子 skill 只需引用，不得重述或覆盖。
 如果一个约定需要更改，只需修改这一份文件。
 
+前端约定在 `reference/frontend-conventions.md`。
+
 ### 5. 正文中文，元数据英文
 
 SKILL.md 文件：
@@ -86,12 +97,41 @@ SKILL.md 文件：
 
 每个模板节标题使用「参考」或「模板」字样标注这一点。
 
+### 7. 根 Just 为唯一对外任务入口
+
+人 / Agent / CI / git hooks 都通过根目录 `just` 调用任务。
+全栈项目中 `web/package.json` 只保留前端内部 scripts，由 Just 转发。
+不要用根 `package.json` 编排 Python 命令。
+
+### 8. 质量门禁默认落地
+
+脚手架必须包含：
+
+- `AGENTS.md`（含 Always/Never、`just check`）
+- `.pre-commit-config.yaml`（prek 兼容，入口 `just check`）
+- `.github/workflows/ci.yml`（调用同一套 Just 目标）
+
+## 当前默认选型（与个人项目对齐）
+
+| 维度 | 默认 |
+|------|------|
+| Python | >=3.12，uv，src 布局，ruff + pyright + ty，pytest |
+| CLI | Typer |
+| 全栈布局 | 根 Python + `web/` |
+| 任务编排 | Just |
+| DB | SQLite（aiosqlite）；不默认 Postgres |
+| 前端 lint/format | oxlint + oxfmt（OXC） |
+| API 契约 | OpenAPI → `@hey-api/openapi-ts` |
+| 路由 / Query | 按需，不塞进默认骨架 |
+| hooks | prek |
+| CI | GitHub Actions |
+
 ## 如何扩展
 
 ### 添加新语言
 
 1. 创建 `reference/<lang>-conventions.md`
-   - 定义工具链、通用依赖、Justfile 模板、.gitignore、禁止事项
+   - 定义工具链、通用依赖、Justfile 模板、.gitignore、禁止事项、门禁
 2. 如需可复用配置文件，放入 `templates/`
 3. 创建 `subskills/<type>/SKILL.md`，引用上述约定
 
@@ -119,9 +159,9 @@ description: >-
 
 ## 特有依赖
 
-```bash
+\`\`\`bash
 <包管理器安装命令>
-```
+\`\`\`
 
 ## 目录结构
 

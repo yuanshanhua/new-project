@@ -1,0 +1,60 @@
+default:
+    @just --list
+
+CHECK_DIRS := "src tests"
+
+# Sync Python + Node deps
+sync:
+    uv sync && cd web && pnpm install
+
+lint:
+    uv run ruff check {{CHECK_DIRS}}
+    cd web && pnpm lint
+
+format:
+    uv run ruff format --check {{CHECK_DIRS}}
+    cd web && pnpm format
+
+fix:
+    uv run ruff check --fix {{CHECK_DIRS}}
+    uv run ruff format {{CHECK_DIRS}}
+    cd web && pnpm fix
+
+typecheck:
+    uv run pyright {{CHECK_DIRS}}
+    uv run ty check {{CHECK_DIRS}}
+    cd web && pnpm typecheck
+
+test:
+    -uv run pytest tests/ -v
+
+check: lint format typecheck test
+
+deps:
+    uv tree -d 1 --outdated
+    cd web && pnpm deps
+
+# Export OpenAPI + generate frontend client
+generate:
+    uv run python scripts/export_openapi.py && cd web && pnpm generate
+
+dev: generate _dev-servers
+
+[parallel]
+_dev-servers: dev-api dev-web
+
+host := env("APP_HOST", "127.0.0.1")
+port := env("APP_PORT", "8000")
+
+dev-api:
+    uv run uvicorn <package>.api.main:app --reload --host {{ host }} --port {{ port }}
+
+dev-web:
+    cd web && pnpm dev
+
+build: generate
+    cd web && pnpm build
+
+[continue]
+start: build
+    uv run uvicorn <package>.api.main:app --host {{ host }} --port {{ port }}

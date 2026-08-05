@@ -1,123 +1,85 @@
 ---
 name: new-project-fastapi-react
 description: >-
-  Scaffold a FastAPI backend + React frontend full-stack project.
-  Backend: FastAPI, SQLAlchemy (async), Alembic, Pydantic v2.
-  Frontend: React 19, Vite, TypeScript, React Router, Tailwind CSS.
-  Toolchain: uv (Python), pnpm (Node), Docker Compose.
-  Use for full-stack web apps with a Python API and React SPA.
+  Scaffold a FastAPI + React full-stack project.
+  Layout: root Python package (src/) + web/ frontend.
+  Backend: FastAPI, SQLAlchemy async, Alembic, SQLite, pydantic-settings.
+  Frontend: React 19, Vite, TypeScript, Tailwind, OpenAPI codegen (hey-api), OXC.
+  Toolchain: uv, pnpm, just, prek. Use for Python API + React SPA apps.
 ---
 
 # FastAPI + React 全栈项目
 
-> 后端遵循 `reference/python-conventions.md`。本文仅描述全栈项目特有的架构、依赖和目录结构。
+> 后端遵循 `reference/python-conventions.md`；前端遵循 `reference/frontend-conventions.md`。
+> 本文仅描述全栈特有的架构、依赖和目录结构。
 
 ## 架构
 
-Monorepo，两个顶层目录。前端开发服务器通过 Vite proxy 将 `/api` 转发到后端。
+根目录 Python 包 + `web/` 前端。根 **Justfile** 是唯一对外任务入口；`web/package.json` 只含前端内部 scripts，由 Just 转发。
+
+开发时 Vite 将 `/api` 代理到后端；生产可由 FastAPI 挂载 `web/dist`（按需）。
 
 ```
 <project-name>/
-├── docker-compose.yml            # PostgreSQL
-├── Justfile                      # 顶层编排
-├── backend/
-│   ├── pyproject.toml            # Python 约定 + 后端特有依赖
-│   ├── Justfile                  # Python 标准目标 + db-* 目标
-│   ├── .env.example
-│   ├── alembic.ini
-│   ├── alembic/
-│   │   ├── env.py
-│   │   └── versions/
-│   └── src/<package>/
-│       ├── __init__.py
+├── Justfile                      # 根编排（从 templates/Justfile.fullstack 复制）
+├── AGENTS.md
+├── .env.example
+├── .pre-commit-config.yaml
+├── .github/workflows/ci.yml
+├── pyproject.toml
+├── ruff.toml
+├── scripts/
+│   └── export_openapi.py
+├── src/<package>/
+│   ├── __init__.py
+│   ├── config.py                 # pydantic-settings
+│   ├── database.py               # async engine + session（SQLite）
+│   ├── models/base.py
+│   ├── schemas/
+│   ├── services/
+│   └── api/
 │       ├── main.py               # FastAPI app factory
-│       ├── config.py             # pydantic-settings
-│       ├── database.py           # 异步 engine + session 依赖
-│       ├── models/base.py        # SQLAlchemy DeclarativeBase
-│       ├── api/router.py         # APIRouter
-│       ├── schemas/
-│       └── services/
-└── frontend/
-    ├── src/
-    │   ├── main.tsx
-    │   ├── App.tsx               # React Router 路由
-    │   ├── index.css             # @import "tailwindcss"
-    │   ├── api/client.ts         # fetch 封装
-    │   ├── pages/
-    │   └── components/
-    ├── vite.config.ts            # 含 /api 代理
-    └── package.json
+│       └── router.py
+├── alembic.ini
+├── alembic/
+│   ├── env.py
+│   └── versions/
+├── tests/
+└── web/                          # Vite React SPA
+    ├── package.json
+    ├── openapi-ts.config.ts
+    ├── openapi.json              # 由 export_openapi 生成
+    ├── vite.config.ts
+    └── src/
+        ├── main.tsx
+        ├── App.tsx
+        ├── client/               # hey-api 生成，禁止手改
+        ├── pages/
+        └── components/
 ```
 
 ## 后端特有内容
 
 ### 额外依赖
 
-在 `uv init` 生成的项目上，除 `reference/python-conventions.md` 定义的 dev 依赖外：
-
 ```bash
-uv add fastapi[standard] "sqlalchemy[asyncio]" asyncpg alembic pydantic-settings
+uv add fastapi "uvicorn[standard]" "sqlalchemy[asyncio]" aiosqlite alembic pydantic-settings
 ```
 
-### backend/Justfile
-
-基于 `reference/python-conventions.md` 的模板，追加后端特有目标。**按项目实际需求调整**。
-
-```make
-default:
-    @just --list
-
-CHECK_DIRS := "src tests"
-
-lint:
-    uv run ruff check {{CHECK_DIRS}}
-
-format:
-    uv run ruff format --check {{CHECK_DIRS}}
-
-fix:
-    uv run ruff check --fix {{CHECK_DIRS}}
-    uv run ruff format {{CHECK_DIRS}}
-
-typecheck:
-    uv run pyright {{CHECK_DIRS}}
-    uv run ty check {{CHECK_DIRS}}
-
-test:
-    -uv run pytest tests/ -v
-
-check: lint format typecheck test
-
-deps:
-    uv tree -d 1 --outdated
-
-# ↓ 后端特有目标 ↓
-
-dev:
-    uv run fastapi dev src/<package>/main.py
-
-db-up:
-    docker compose -f ../docker-compose.yml up -d db
-
-db-migrate:
-    uv run alembic upgrade head
-
-db-revision msg:
-    uv run alembic revision --autogenerate -m "{{msg}}"
-```
+数据库默认 **SQLite**（`sqlite+aiosqlite`）。不要默认引入 PostgreSQL / Docker Compose。
 
 ### config.py
 
 ```python
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    app_name: str = "<project-name>"
-    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/<db-name>"
-    cors_origins: list[str] = ["http://localhost:5173"]
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    app_name: str = "<project-name>"
+    database_url: str = "sqlite+aiosqlite:///./data/app.db"
+    cors_origins: list[str] = ["http://localhost:5173"]
 
 
 settings = Settings()
@@ -126,31 +88,36 @@ settings = Settings()
 ### database.py
 
 ```python
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from collections.abc import AsyncIterator
+
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
 from .config import settings
 
 engine = create_async_engine(settings.database_url, echo=False)
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
-async def get_db() -> AsyncSession:
+async def get_db() -> AsyncIterator[AsyncSession]:
     async with async_session() as session:
         yield session
 ```
 
-### main.py
+### api/main.py
 
 ```python
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .config import settings
-from .database import engine
-from .api.router import api_router
+
+from <package>.api.router import api_router
+from <package>.config import settings
+from <package>.database import engine
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI):
     yield
     await engine.dispose()
 
@@ -171,15 +138,6 @@ def create_app() -> FastAPI:
 app = create_app()
 ```
 
-### models/base.py
-
-```python
-from sqlalchemy.orm import DeclarativeBase
-
-class Base(DeclarativeBase):
-    pass
-```
-
 ### api/router.py
 
 ```python
@@ -187,29 +145,63 @@ from fastapi import APIRouter
 
 api_router = APIRouter()
 
+
 @api_router.get("/health")
-async def health():
+async def health() -> dict[str, str]:
     return {"status": "ok"}
 ```
 
-### Alembic 配置
+### models/base.py
 
-初始化后修改 `alembic/env.py`，使用同步 URL 执行 DDL：
+```python
+from sqlalchemy.orm import DeclarativeBase
+
+
+class Base(DeclarativeBase):
+    pass
+```
+
+### Alembic
+
+```bash
+uv run alembic init alembic
+```
+
+修改 `alembic/env.py`：对 SQLite 用同步 URL 跑 DDL（`sqlite+aiosqlite` → `sqlite`）：
 
 ```python
 from <package>.config import settings
 from <package>.models.base import Base
 
-sync_url = settings.database_url.replace("+asyncpg", "")
+sync_url = settings.database_url.replace("+aiosqlite", "")
 target_metadata = Base.metadata
+```
 
-def run_migrations_online() -> None:
-    from sqlalchemy import create_engine
-    connectable = create_engine(sync_url)
-    with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
-        with context.begin_transaction():
-            context.run_migrations()
+其余按 Alembic 常规 online 迁移写法接入 `sync_url`。
+
+### scripts/export_openapi.py
+
+```python
+#!/usr/bin/env python3
+"""Export FastAPI OpenAPI schema for frontend SDK generation."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from <package>.api.main import app
+
+
+def main() -> int:
+    root = Path(__file__).resolve().parents[1]
+    out = root / "web" / "openapi.json"
+    out.write_text(json.dumps(app.openapi(), indent=2) + "\n", encoding="utf-8")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
 ```
 
 ## 前端
@@ -217,42 +209,28 @@ def run_migrations_online() -> None:
 ### 创建方式
 
 ```bash
-pnpm create vite@latest frontend --template react-ts
-cd frontend
-pnpm add react-router-dom
-pnpm add -D tailwindcss @tailwindcss/vite
+pnpm create vite@latest web --template react-ts
+cd web
+pnpm add -D tailwindcss @tailwindcss/vite oxlint oxfmt npm-check-updates @hey-api/openapi-ts
 ```
 
-### package.json 脚本参考
+按 `reference/frontend-conventions.md` 写入 scripts（含 `generate` / `lint` / `fix` / `typecheck`）。
 
-以下为 Vite + React 项目的推荐脚本，**按项目需求调整**（如替换格式化工具、添加项目特有命令等）：
-
-```json
-{
-  "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "lint": "tsc --noEmit",
-    "format": "prettier --check src/",
-    "fix": "prettier --write src/",
-    "dep": "ncu -i --format group"
-  }
-}
-```
-
-> `ncu` 由 `npm-check-updates` 提供：`pnpm add -D npm-check-updates`。
-> 如使用 biome 替代 prettier，相应替换 `format`/`fix` 命令。
+从 `templates/openapi-ts.config.ts` 复制到 `web/`。
 
 ### vite.config.ts
 
 ```typescript
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
+import { resolve } from "node:path";
 import tailwindcss from "@tailwindcss/vite";
+import react from "@vitejs/plugin-react";
+import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: { "@": resolve(import.meta.dirname, "./src") },
+  },
   server: {
     port: 5173,
     proxy: { "/api": "http://localhost:8000" },
@@ -260,112 +238,40 @@ export default defineConfig({
 });
 ```
 
-### src/App.tsx
+### 骨架保持薄
 
-```tsx
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { Layout } from "./components/Layout";
-import { Home } from "./pages/Home";
+默认只要：`main.tsx`、简单 `App.tsx` / 首页、以及通过生成 client 调用 `/api/health` 的示例。
 
-export default function App() {
-  return (
-    <BrowserRouter>
-      <Routes>
-        <Route element={<Layout />}>
-          <Route path="/" element={<Home />} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
-  );
-}
-```
+**不要默认安装** React Router 或 TanStack Query。需要时再追加（见下节）。
 
-### src/api/client.ts
+### 按需追加
 
-```typescript
-const BASE = "/api";
+| 需求 | 可选依赖 |
+|------|----------|
+| 多页面路由 | `pnpm add react-router`（或 TanStack Router） |
+| 服务端状态缓存 / 失效 | `pnpm add @tanstack/react-query` |
+| 客户端 UI 状态 | `pnpm add zustand` |
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...init?.headers },
-    ...init,
-  });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-  return res.json();
-}
+## 根 Justfile
 
-export const api = { get: <T>(p: string) => request<T>(p) };
-```
-
-`Layout.tsx`、`Home.tsx`、`pages/` 等页面组件按需创建，内容从简。
-
-## docker-compose.yml
-
-```yaml
-services:
-  db:
-    image: postgres:17-alpine
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: <db-name>
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-
-volumes:
-  pgdata:
-```
-
-## 顶层 Justfile
-
-以下为 monorepo 顶层编排模板，**按项目需求调整**：
-
-```make
-default:
-    @just --list
-
-dev:
-    just dev-backend & just dev-frontend & wait
-
-dev-backend:
-    cd backend && just dev
-
-dev-frontend:
-    cd frontend && pnpm dev
-
-check:
-    cd backend && just check
-    cd frontend && pnpm lint
-
-fix:
-    cd backend && just fix
-    cd frontend && pnpm fix
-
-db-up:
-    docker compose up -d db
-
-db-migrate:
-    cd backend && just db-migrate
-```
+从 `templates/Justfile.fullstack` 复制，把 `<package>` 换成实际包名。
 
 ## 搭建步骤
 
-1. 询问用户：项目名、Python 包名、数据库名
-2. 创建项目根目录，写入 `docker-compose.yml`、顶层 `Justfile`、`.gitignore`
-3. **后端**：
-   - `cd backend && uv init --lib`
-   - 按 `reference/python-conventions.md` 用 `uv add --dev` 安装 dev 依赖，添加 ruff/ty/pyright 配置
-   - `uv add fastapi[standard] "sqlalchemy[asyncio]" asyncpg alembic pydantic-settings`
-   - 从 `templates/ruff.toml` 复制到 `backend/`
-   - 写入 `Justfile`（标准目标 + db-* 目标）
-   - 写入 `main.py`、`config.py`、`database.py`、`models/base.py`、`api/router.py`
-   - `uv sync`
-   - `uv run alembic init alembic` → 修改 `alembic/env.py`
-4. **前端**：
-   - `pnpm create vite@latest frontend --template react-ts`
-   - 安装 react-router-dom、tailwind
-   - 写入 `vite.config.ts`、`App.tsx`、`api/client.ts`
-5. `docker compose up -d db && cd backend && just db-migrate`
-6. 验证：`just dev-backend`（端口 8000）+ `just dev-frontend`（端口 5173）
+1. 询问用户：项目名、Python 包名
+2. 创建根目录；`uv init --lib`（或在当前目录 init），`requires-python = ">=3.12"`，src 布局
+3. 按 python-conventions：`uv add --dev pytest ruff ty pyright prek`；复制 `templates/ruff.toml`；配置 pyright/ty
+4. `uv add fastapi "uvicorn[standard]" "sqlalchemy[asyncio]" aiosqlite alembic pydantic-settings`
+5. 写入 `config.py`、`database.py`、`models/base.py`、`api/main.py`、`api/router.py`、`scripts/export_openapi.py`
+6. `uv run alembic init alembic` 并改 `env.py`；`mkdir -p data`
+7. 复制 `templates/Justfile.fullstack` → `Justfile`；`templates/env.example` → `.env.example`
+8. 复制 `templates/AGENTS.md`（启用全栈相关段落）；`templates/.pre-commit-config.yaml`；`templates/ci.fullstack.yml` → `.github/workflows/ci.yml`
+9. 前端：`pnpm create vite@latest web --template react-ts`；安装 Tailwind / OXC / hey-api；写 `vite.config.ts`、`openapi-ts.config.ts`、scripts
+10. `just sync && just generate && uv run prek install && just check`
+11. 验证：`just dev`（API :8000 + Web :5173）
+
+## 质量门禁（必须写入 AGENTS.md）
+
+- 提交前 `just check`
+- 改 API 后 `just generate`；禁止手改 `web/src/client`
+- prek hook 调 `just check`；CI 调同一套 Just 目标并校验 OpenAPI 生成物已提交
